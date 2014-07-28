@@ -417,6 +417,10 @@
           self._playStart = ctx.currentTime;
           node.gain.value = self._volume;
 
+          if (typeof node.bufferSource  === 'undefined') {
+            return;
+          }
+
           if (typeof node.bufferSource.start === 'undefined') {
             node.bufferSource.noteGrainOn(0, pos, duration);
           } else {
@@ -648,6 +652,23 @@
       } else {
         return self._volume;
       }
+    },
+
+    filter: function(freq, id){
+      var self = this;
+
+      // make sure gain is a number
+      freq = parseFloat(freq);
+
+      self._freq = freq;
+
+      var activeNode = (id) ? self._nodeById(id) : self._activeNode();
+      if (activeNode) {
+        if (self._webAudio) {
+          activeNode.filter.frequency.value = freq;
+        }
+      }
+      return self;
     },
 
     /**
@@ -1003,14 +1024,25 @@
       node[index].gain.value = self._volume;
       node[index].paused = true;
       node[index]._pos = 0;
-      node[index].readyState = 4;
+      node[index].readyState = 2;
       node[index].connect(masterGain);
 
       // create the panner
       node[index].panner = ctx.createPanner();
       node[index].panner.panningModel = self._model || 'equalpower';
       node[index].panner.setPosition(self._pos3d[0], self._pos3d[1], self._pos3d[2]);
-      node[index].panner.connect(node[index]);
+
+      // create low pass filter
+      node[index].filter = ctx.createBiquadFilter();
+      node[index].filter.type = "lowpass";
+      node[index].filter.frequency.value = 880;
+      node[index].filter.Q.value = 0;
+      node[index].filter.gain.value = 0;
+
+      node[index].panner.connect(node[index].filter);
+      node[index].filter.connect(node[index]);
+
+      //node[index].panner.connect(node[index]);
 
       return node[index];
     },
@@ -1096,7 +1128,7 @@
       if (index !== null && index >= 0) {
         Howler._howls.splice(index, 1);
       }
-
+      
       // delete this sound from the cache
       delete cache[self._src];
       self = null;
@@ -1192,6 +1224,10 @@
     var refreshBuffer = function(obj, loop, id) {
       // determine which node to connect to
       var node = obj._nodeById(id);
+
+      if (typeof cache[obj._src] === "undefined"){
+        return;
+      }
 
       // setup the buffer source for playback
       node.bufferSource = ctx.createBufferSource();
